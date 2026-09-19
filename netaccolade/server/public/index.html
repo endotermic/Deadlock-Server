@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NetAccolade Lobby</title>
+<style>
+  :root { --bg:#10141c; --panel:#1a2230; --line:#2d3a50; --fg:#e6ebf2; --dim:#93a0b5; --accent:#e0a837; --ok:#5fc27a; --bad:#e06060; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.45 Segoe UI, system-ui, sans-serif; }
+  header { padding:12px 20px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:16px; }
+  header h1 { font-size:18px; margin:0; letter-spacing:.06em; color:var(--accent); }
+  header .status { color:var(--dim); font-size:13px; }
+  .ok { color:var(--ok); } .bad { color:var(--bad); }
+  main { display:grid; grid-template-columns: 1fr 1fr; gap:16px; padding:16px 20px; max-width:1200px; margin:0 auto; }
+  @media (max-width:900px) { main { grid-template-columns:1fr; } }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px; }
+  .panel h2 { font-size:14px; margin:0 0 10px; text-transform:uppercase; letter-spacing:.08em; color:var(--dim); }
+  input, select, button, textarea { font:inherit; color:var(--fg); background:#0e1319; border:1px solid var(--line); border-radius:6px; padding:6px 8px; }
+  button { cursor:pointer; background:#26324a; } button:hover { background:#31405d; } button.primary { background:var(--accent); color:#1a1200; font-weight:600; }
+  button:disabled { opacity:.5; cursor:default; }
+  .chat { height:260px; overflow-y:auto; background:#0e1319; border:1px solid var(--line); border-radius:6px; padding:8px; font-size:13px; }
+  .chat .sys { color:var(--dim); font-style:italic; } .chat b { color:var(--accent); }
+  .row { display:flex; gap:8px; margin-top:8px; } .row input { flex:1; }
+  ul { list-style:none; padding:0; margin:0; } li { padding:6px 8px; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; align-items:center; gap:8px; }
+  li:last-child { border-bottom:0; }
+  .tag { font-size:11px; padding:1px 6px; border-radius:10px; background:#26324a; color:var(--dim); }
+  form.opts { display:grid; grid-template-columns: 1fr 1fr; gap:6px 12px; margin-top:10px; }
+  form.opts label { display:flex; flex-direction:column; font-size:12px; color:var(--dim); }
+  form.opts label.check { flex-direction:row; align-items:center; gap:6px; }
+  form.opts .wide { grid-column: 1 / -1; }
+  #gate { max-width:420px; margin:80px auto; }
+  .hidden { display:none !important; }
+  .muted { color:var(--dim); font-size:12px; }
+  pre { background:#0e1319; border:1px solid var(--line); border-radius:6px; padding:8px; font-size:12px; overflow:auto; max-height:260px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>NETACCOLADE · Deadlock II lobby</h1>
+  <span class="status" id="agentStatus">client: not connected</span>
+  <span class="status" id="serverStatus"></span>
+</header>
+
+<div id="gate" class="panel">
+  <h2>Choose a name</h2>
+  <p class="muted">Same first step as the original NetAccolade: pick the name other players will see. It is also your in-game player name (31 characters max).</p>
+  <div class="row"><input id="nameInput" maxlength="31" placeholder="Your name" autofocus><button class="primary" id="enterBtn">Enter lobby</button></div>
+  <p class="muted" id="gateAgent"></p>
+</div>
+
+<main id="app" class="hidden">
+  <section class="panel">
+    <h2>Lobby chat</h2>
+    <div class="chat" id="lobbyChat"></div>
+    <div class="row"><input id="lobbyMsg" placeholder="Say something to the lobby  (/fakeclient 2 adds test players, /help)"><button id="lobbySend">Send</button></div>
+    <h2 style="margin-top:14px">Players</h2>
+    <ul id="playerList"></ul>
+  </section>
+
+  <section class="panel" id="playPanel">
+    <h2>Play</h2>
+    <div id="gameList"></div>
+    <div id="fakeGames" class="muted" style="margin-top:8px"></div>
+    <details id="connectBox" style="margin-top:10px">
+      <summary><b>Connect to IP</b> <span class="muted">(direct TCP/IP join, no lobby game)</span></summary>
+      <p class="muted">Starts your Deadlock 2 as a joiner pointed at this address; pick the host's session in the game's join list. Needs your connected client.</p>
+      <div class="row"><input id="connectAddr" maxlength="63" placeholder="host IP or name, e.g. 192.168.1.10"><button class="primary" id="connectBtn">Connect &amp; launch</button></div>
+      <p class="muted" id="connectErr"></p>
+    </details>
+    <details id="createBox" style="margin-top:10px">
+      <summary><b>Create Game</b></summary>
+      <form class="opts" id="optForm" onsubmit="return false">
+        <label class="wide">Game name<input name="name" maxlength="31" placeholder="Online War"></label>
+        <label class="wide">Description<input name="description" maxlength="200" placeholder="Shown to players who look at your game"></label>
+        <label class="wide">Connect address for joiners (leave empty for automatic)<input name="hostAddress" maxlength="63" placeholder="your public / VPN IP or host name, e.g. 10.147.17.5"></label>
+        <label>Start from<select name="fileType"><option value="new_game">New game</option><option value="saved_game">Saved game (host's file)</option></select></label>
+        <label>Save file (saved game only)<input name="saveFile" placeholder="Saves\MYGAME.SAV"></label>
+        <label>Colonies (players incl. AI)<select name="players"></select></label>
+        <label>Victory<select name="victory"></select></label>
+        <label>Win cities<select name="winCities"></select></label>
+        <label>Win shrines<select name="winShrines"></select></label>
+        <label>Win turns<select name="winTurns"></select></label>
+        <label>AI skill (-2..3)<select name="aiSkill"></select></label>
+        <label>Racial abilities<select name="racialAbilities"></select></label>
+        <label>World<select name="worldType"></select></label>
+        <label class="check"><input type="checkbox" name="randomEvents" checked>Random events</label>
+        <label class="check"><input type="checkbox" name="allowAlliances" checked>Allow alliances</label>
+        <label class="check"><input type="checkbox" name="fastProduction">Fast production</label>
+        <label class="check"><input type="checkbox" name="worldResources" checked>World resources</label>
+        <label class="check"><input type="checkbox" name="lastPlayerTimer">Last player timer</label>
+        <label>Last player clock (s)<input name="lastPlayerClock" type="number" min="3" max="960" value="60"></label>
+        <label class="check"><input type="checkbox" name="autoTimer">Auto turn timer</label>
+        <label>Auto timer clock (s)<input name="autoTimerClock" type="number" min="3" max="960" value="60"></label>
+        <div class="wide" id="customWorld" style="display:none">
+          <div class="opts" style="display:grid;grid-template-columns:1fr 1fr;gap:6px 12px">
+            <label class="wide">Map file (optional, makes this a map game)<input name="mapFile" placeholder="Maps\MYMAP.SAV"></label>
+            <label>Size (20..40)<input name="size" type="number" min="20" max="40" value="30"></label>
+            <label>Colour<select name="color"></select></label>
+            <label>% Oceans<input name="p_oceans" type="number" min="0" max="75" value="30"></label>
+            <label>% Plains<input name="p_plains" type="number" min="0" max="100" value="30"></label>
+            <label>% Forests<input name="p_forests" type="number" min="0" max="100" value="20"></label>
+            <label>% Swamps<input name="p_swamps" type="number" min="0" max="100" value="10"></label>
+            <label>% Mountains<input name="p_mountains" type="number" min="0" max="100" value="5"></label>
+            <label>% Wastelands<input name="p_wastelands" type="number" min="0" max="100" value="5"></label>
+          </div>
+        </div>
+        <div class="wide row"><button class="primary" id="createBtn">Create Game</button><span class="muted" id="createErr"></span></div>
+      </form>
+    </details>
+  </section>
+
+  <section class="panel hidden" id="gamePanel" style="grid-column:1 / -1">
+    <h2>Your game: <span id="gName"></span> <span class="tag" id="gRole"></span></h2>
+    <p class="muted" id="gDesc"></p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+      <div>
+        <h2>Launch chat</h2>
+        <div class="chat" id="gameChat"></div>
+        <div class="row"><input id="gameMsg" placeholder="Talk to the people in this game"><button id="gameSend">Send</button></div>
+      </div>
+      <div>
+        <h2>Who's in</h2>
+        <ul id="gPlayers"></ul>
+        <div class="row">
+          <button id="readyBtn">Ready</button>
+          <button class="primary" id="launchBtn">Launch</button>
+          <button id="leaveBtn">Leave</button>
+          <button id="previewBtn">Show deadlock.ini</button>
+        </div>
+        <p class="muted" id="gHint"></p>
+        <div id="addrBox" style="margin-top:8px">
+          <div class="muted">Joiners will connect to: <b id="gAddr"></b> <span id="gAddrMode" class="tag"></span></div>
+          <div class="row" id="addrEdit"><input id="addrInput" maxlength="63" placeholder="public / VPN IP or host name, or 'auto'"><button id="addrBtn">Set address</button></div>
+          <div class="muted" id="gMyIps"></div>
+        </div>
+        <pre id="iniPreview" class="hidden"></pre>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script>
+(() => {
+  const $ = (s) => document.querySelector(s);
+  const qs = new URLSearchParams(location.search);
+  const agentToken = qs.get('agent') || sessionStorage.getItem('agent') || '';
+  if (qs.get('agent')) sessionStorage.setItem('agent', qs.get('agent'));
+  let playerId = sessionStorage.getItem('player') || '';
+  let state = null, schema = null, es = null;
+  const api = async (path, body) => {
+    const r = await fetch(path, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {});
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || r.statusText);
+    return j;
+  };
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const fill = (sel, values, labels) => { sel.innerHTML = values.map((v, i) => `<option value="${v}">${labels ? labels[i] : v}</option>`).join(''); };
+
+  // ---- gate ------------------------------------------------------------------------------
+  $('#nameInput').value = sessionStorage.getItem('name') || '';
+  $('#gateAgent').textContent = agentToken ? 'Deadlock II client detected (started from the game).' : 'No Deadlock II client linked. Start NetAccolade from the game\'s main menu, or run MClient.exe from the game directory, then reload this page with the link it opens.';
+  async function enter() {
+    const name = $('#nameInput').value.trim();
+    if (!name) return;
+    const r = await api('/api/player/join', { name, player: playerId, agent: agentToken });
+    playerId = r.player; sessionStorage.setItem('player', playerId); sessionStorage.setItem('name', name);
+    $('#gate').classList.add('hidden'); $('#app').classList.remove('hidden');
+    connect();
+  }
+  $('#enterBtn').onclick = enter;
+  $('#nameInput').onkeydown = (e) => { if (e.key === 'Enter') enter(); };
+
+  // ---- live updates ---------------------------------------------------------------------
+  function connect() {
+    if (es) es.close();
+    es = new EventSource('/api/events?player=' + encodeURIComponent(playerId));
+    es.addEventListener('state', (e) => { state = JSON.parse(e.data); render(); });
+    es.addEventListener('chat', (e) => addChat(JSON.parse(e.data)));
+    es.onerror = () => { $('#serverStatus').textContent = 'server: reconnecting…'; };
+    es.onopen = () => { $('#serverStatus').textContent = ''; };
+  }
+  function addChat(m) {
+    const box = m.channel === 'lobby' ? $('#lobbyChat') : (state && state.me && state.me.gameKey === m.channel ? $('#gameChat') : null);
+    if (!box) return;
+    const d = document.createElement('div');
+    const t = new Date(m.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    d.innerHTML = m.from === 'system' ? `<span class="sys">${t} ${esc(m.text)}</span>` : `<span class="muted">${t}</span> <b>${esc(m.from)}</b>: ${esc(m.text)}`;
+    box.appendChild(d); box.scrollTop = box.scrollHeight;
+  }
+  const send = (channel, input) => async () => { const text = input.value.trim(); if (!text) return; input.value = ''; try { await api('/api/chat', { player: playerId, text, channel }); } catch (e) { alert(e.message); } };
+  $('#lobbySend').onclick = send('lobby', $('#lobbyMsg')); $('#lobbyMsg').onkeydown = (e) => { if (e.key === 'Enter') $('#lobbySend').click(); };
+  $('#gameSend').onclick = send('game', $('#gameMsg')); $('#gameMsg').onkeydown = (e) => { if (e.key === 'Enter') $('#gameSend').click(); };
+
+  // ---- render ---------------------------------------------------------------------------
+  let lastGameKey = null;
+  function render() {
+    if (!state || !state.me) return;
+    const me = state.me;
+    const a = me.agent;
+    $('#agentStatus').innerHTML = a ? `client: <span class="${a.online ? 'ok' : 'bad'}">${a.online ? 'connected' : 'lost'}</span> · ${esc(a.gameDir)}` : 'client: <span class="bad">not connected</span> (start NetAccolade from the game)';
+    $('#playerList').innerHTML = state.players.map((p) => `<li><span>${esc(p.name)}${p.id === me.id ? ' (you)' : ''}</span><span>${p.fake ? '<span class="tag">bot</span>' : ''}${p.gameKey ? '<span class="tag">in game</span>' : ''}${p.agentOnline ? '<span class="tag ok">DL2 ready</span>' : ''}${p.online ? '' : '<span class="tag">away</span>'}</span></li>`).join('') || '<li class="muted">nobody here yet</li>';
+    const myGame = state.games.find((g) => g.key === me.gameKey);
+    $('#gameList').innerHTML = state.games.length ? '<ul>' + state.games.map((g) => `<li><span><b>${esc(g.name)}</b> <span class="muted">by ${esc(g.hostName || '?')} · ${g.participants.length}/${g.options.players} · ${esc(g.options.victory)} · ${esc(g.options.worldType)}</span>${g.description ? `<br><span class="muted">${esc(g.description)}</span>` : ''}</span><span>${g.launched ? '<span class="tag">launching</span>' : (me.gameKey === g.key ? '<span class="tag ok">joined</span>' : `<button data-join="${g.key}">Join</button>`)}</span></li>`).join('') + '</ul>' : '<p class="muted">No Deadlock 2 games are waiting for players. Create one.</p>';
+    $('#fakeGames').innerHTML = state.fakeGames && state.fakeGames.length ? `Fake DirectPlay sessions advertised on this PC (in the game: TCP/IP join at localhost): ${state.fakeGames.map((g) => `<b>${esc(g.name)}</b> ${g.current + (g.joined || []).length}/${g.max} (port ${g.port})${g.joined && g.joined.length ? ` joined by ${g.joined.map((j) => esc(j.name || j.ip)).join(', ')}` : ''}`).join(' · ')}${state.server.dpenum ? ` · ${state.server.dpenum.requests} enumeration request(s) answered` : ''}` : '';
+    document.querySelectorAll('[data-join]').forEach((b) => { b.onclick = () => api('/api/game/join', { player: playerId, key: b.dataset.join }).catch((e) => alert(e.message)); });
+    $('#createBox').classList.toggle('hidden', !!myGame);
+    $('#gamePanel').classList.toggle('hidden', !myGame);
+    if (myGame) {
+      if (myGame.key !== lastGameKey) { $('#gameChat').innerHTML = ''; $('#iniPreview').classList.add('hidden'); }
+      const isHost = myGame.hostId === me.id;
+      $('#gName').textContent = myGame.name; $('#gRole').textContent = isHost ? 'you host' : 'joining'; $('#gDesc').textContent = myGame.description || '';
+      $('#gPlayers').innerHTML = myGame.participants.map((pid) => { const p = state.players.find((x) => x.id === pid) || { name: '?' }; return `<li><span>${esc(p.name)}${pid === myGame.hostId ? ' <span class="tag">host</span>' : ''}</span><span>${p.agentOnline ? '<span class="tag ok">DL2 ready</span>' : '<span class="tag bad">no client</span>'} ${pid !== myGame.hostId ? (p.ready ? '<span class="tag ok">ready</span>' : '<span class="tag">not ready</span>') : ''}</span></li>`; }).join('');
+      $('#readyBtn').classList.toggle('hidden', isHost); $('#readyBtn').textContent = me.ready ? 'Not ready' : 'Ready';
+      $('#launchBtn').classList.toggle('hidden', !isHost);
+      const others = myGame.participants.filter((x) => x !== myGame.hostId).map((x) => state.players.find((p) => p.id === x)).filter(Boolean);
+      const allReady = others.length > 0 && others.every((p) => p.ready && p.agentOnline);
+      $('#launchBtn').disabled = !allReady || !(a && a.online) || myGame.launched;
+      $('#gHint').textContent = isHost ? (allReady ? 'Everyone is ready. Launch closes this lobby client and starts Deadlock 2 on every machine.' : 'Waiting for players to join and press Ready; each needs a connected Deadlock II client.') : 'Press Ready when you want to start. The host launches the game; your Deadlock 2 will start and show the host\'s session in the join list.';
+      const addr = myGame.hostAddress || myGame.autoAddress || '?';
+      $('#gAddr').textContent = addr; $('#gAddrMode').textContent = myGame.hostAddress ? 'set by host' : 'automatic';
+      $('#addrEdit').classList.toggle('hidden', !isHost);
+      $('#gMyIps').textContent = isHost && state.server.ips && state.server.ips.length ? `This PC's LAN addresses: ${state.server.ips.join(', ')}. Players on the Internet need your public or VPN address and TCP/UDP 2300-2400 + UDP 47624 reachable.` : '';
+    }
+    lastGameKey = myGame ? myGame.key : null;
+  }
+
+  $('#readyBtn').onclick = () => api('/api/game/ready', { player: playerId, ready: !state.me.ready }).catch((e) => alert(e.message));
+  $('#leaveBtn').onclick = () => api('/api/game/leave', { player: playerId }).catch((e) => alert(e.message));
+  $('#launchBtn').onclick = () => api('/api/game/launch', { player: playerId }).catch((e) => alert(e.message));
+  $('#addrBtn').onclick = () => api('/api/game/address', { player: playerId, address: $('#addrInput').value.trim() || 'auto' }).then(() => { $('#addrInput').value = ''; }).catch((e) => alert(e.message));
+  $('#addrInput').onkeydown = (e) => { if (e.key === 'Enter') $('#addrBtn').click(); };
+  $('#connectBtn').onclick = async () => {
+    $('#connectErr').textContent = '';
+    try { const r = await api('/api/connect', { player: playerId, address: $('#connectAddr').value.trim() }); $('#connectErr').textContent = `Launching Deadlock 2 as a joiner against ${r.address}. This lobby client closes when the game starts.`; }
+    catch (e) { $('#connectErr').textContent = e.message; }
+  };
+  $('#connectAddr').onkeydown = (e) => { if (e.key === 'Enter') $('#connectBtn').click(); };
+  $('#previewBtn').onclick = async () => { const r = await fetch('/api/ini/preview?player=' + encodeURIComponent(playerId)); $('#iniPreview').textContent = await r.text(); $('#iniPreview').classList.toggle('hidden'); };
+
+  // ---- create game form -----------------------------------------------------------------
+  async function loadSchema() {
+    schema = await api('/api/options/schema');
+    const f = $('#optForm');
+    fill(f.players, [2, 3, 4, 5, 6, 7]);
+    fill(f.victory, schema.victory, ['Manifest Destiny', 'Conquest', 'Shrine Wars']);
+    fill(f.winCities, schema.winCities); fill(f.winShrines, schema.winShrines); fill(f.winTurns, schema.winTurns);
+    fill(f.aiSkill, [-2, -1, 0, 1, 2, 3]);
+    fill(f.racialAbilities, schema.abilities, ['Standard', 'Best', 'None']);
+    fill(f.worldType, schema.worldTypes); fill(f.color, schema.colors);
+    const d = schema.defaults;
+    f.players.value = d.players; f.victory.value = d.victory; f.winCities.value = d.winCities; f.winShrines.value = d.winShrines; f.winTurns.value = d.winTurns; f.aiSkill.value = d.aiSkill; f.worldType.value = d.worldType;
+    f.worldType.onchange = () => { $('#customWorld').style.display = f.worldType.value === 'custom' ? '' : 'none'; };
+  }
+  $('#createBtn').onclick = async () => {
+    const f = $('#optForm'); const v = (n) => f.elements[n].value; const c = (n) => f.elements[n].checked;
+    const options = { fileType: v('fileType'), saveFile: v('saveFile'), players: +v('players'), victory: v('victory'), winCities: +v('winCities'), winShrines: +v('winShrines'), winTurns: +v('winTurns'), aiSkill: +v('aiSkill'), racialAbilities: v('racialAbilities'), worldType: v('worldType'), randomEvents: c('randomEvents'), allowAlliances: c('allowAlliances'), fastProduction: c('fastProduction'), worldResources: c('worldResources'), lastPlayerTimer: c('lastPlayerTimer'), lastPlayerClock: +v('lastPlayerClock'), autoTimer: c('autoTimer'), autoTimerClock: +v('autoTimerClock'), mapFile: v('mapFile'), size: +v('size'), color: v('color'), percents: { oceans: +v('p_oceans'), plains: +v('p_plains'), forests: +v('p_forests'), swamps: +v('p_swamps'), mountains: +v('p_mountains'), wastelands: +v('p_wastelands') } };
+    $('#createErr').textContent = '';
+    try { await api('/api/game/create', { player: playerId, name: v('name'), description: v('description'), hostAddress: v('hostAddress'), options }); } catch (e) { $('#createErr').textContent = e.message; }
+  };
+
+  loadSchema().then(() => { if (playerId && sessionStorage.getItem('name')) enter(); });
+})();
+</script>
+</body>
+</html>
