@@ -11,7 +11,7 @@ This file is the overview. Details live in:
 | [NetAccolade-Investigation.md](NetAccolade-Investigation.md) | reverse engineering of the game: launcher, `-ms`, `deadlock.ini` format, state machine, CGNet/DirectPlay wrapper |
 | [netaccolade/server/README.md](netaccolade/server/README.md) | the Node.js lobby server: install, run, API, fake clients, fake games |
 | [netaccolade/server/protocol-notes.md](netaccolade/server/protocol-notes.md) | DirectPlay 4 TCP/IP wire protocol as captured from the real game and read from `dplayx.dll` |
-| [CLAUDE.md](CLAUDE.md) | repo conventions, now with pointers to all of the above |
+| [README.md](README.md) | repository overview: what is included and how to use it |
 
 ## 1. What NetAccolade was, as far as the game is concerned
 
