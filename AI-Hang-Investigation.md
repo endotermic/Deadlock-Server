@@ -115,7 +115,21 @@ Replace `89 46 0C` at VA `0x00408BAB` with `90 90 90` (three NOPs).
 
 File offset: CODE section starts at VA 0x401000 / raw 0x800, so `0x408BAB - 0x401000 + 0x800 = 0x83AB`.
 
-Effect: a re-armed job keeps its raised priority and the increased requested amount, but keeps done = 1, so it runs on the **next** turn rather than again in the same pass. The AI retries an impossible build once per turn, which is harmless, instead of hanging the game. Nothing else in the pass changes.
+Effect: a re-armed job still gets its raised priority and the increased requested amount, but keeps done = 1, so it is **not** run a second time in the same pass. The node itself does not survive: the scheduler's exit path (`0x405948`, called at `0x405B2A`) unlinks and frees every type-8 job of the race, so "obtain resource" jobs live for exactly one pass. The dropped second request is regenerated on the next turn when the planner re-evaluates shortages from scratch and rebuilds the request chain. The AI retries an impossible build once per turn, which is harmless, instead of hanging the game. Nothing else in the pass changes.
+
+### 5.1 How much this changes AI decisions
+
+Very little. The NOPed store only has an effect when `0x408B58` finds an existing equivalent type-8 job whose done flag is already 1, i.e. one that was processed earlier in the same pass. If the job has not run yet, done is already 0 and the patched code behaves exactly as before (amount added, priority raised).
+
+A second request for an already-processed resource comes from one place only: a type-2 "build building" job spawned mid-pass by a type-8 handler, which requests every resource cost the race cannot produce. That is the prerequisite-chain case.
+
+| Case | Unpatched | Patched |
+|------|-----------|---------|
+| Resource requested once per pass (the normal case) | identical | identical |
+| Resource requested again after its job ran, chain is acyclic | job re-runs now with the larger amount and may queue another producer or prerequisite build this turn | no re-run this turn; the chain re-forms next turn, so the second-order decision lands one turn later |
+| Resource requested again after its job ran, chain is circular | pass never ends (the hang) | one failed attempt per turn |
+
+Not affected: combat, movement, diplomacy, research, population and every other minister handler, which the request-resource path never touches. The scheduler's own priority bookkeeping (`0x405AE2..0x405B10`) is unchanged. The binary diff against `DEADLOCK.EXE.orig` is exactly the three bytes at `0x83AB`.
 
 Verification:
 - In-memory patch on the hung process: main thread left the scheduler within seconds, window responsive, turn completed, play continued.
@@ -161,8 +175,10 @@ already-processed job by clearing its done flag at 0x00408BAB (mov [esi+0Ch],eax
 circular building/resource prerequisite the pass never ends.
 
 Proposed fix: replace the 3 bytes at file offset 0x83AB (89 46 0C) with 90 90 90. The
-re-armed job then runs on the next turn instead of again in the same pass. Verified: the
-patched EXE completes the turn and play continues normally. Patch script attached.
+re-armed job is then not re-run in the same pass; resource jobs are purged at the end of
+every pass anyway (0x00405948) and the planner recreates the request on the next turn.
+Verified: the patched EXE completes the turn and play continues normally. Patch script
+attached.
 ```
 
 ## 8. Reusable recipe for the next hang

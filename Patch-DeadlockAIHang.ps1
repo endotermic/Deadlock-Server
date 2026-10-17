@@ -28,10 +28,12 @@
         get resource R  ->  spawn "build A"  ->  "build A" re-arms "get resource R"  -> ...
 
   THE FIX
-    Replace the 3-byte store with three NOPs (90 90 90). The re-armed job keeps its boosted
-    priority and its updated resource amount, but runs on the next turn instead of again in
-    the same pass. The AI therefore retries an impossible build once per turn (harmless)
-    instead of hanging the game.
+    Replace the 3-byte store with three NOPs (90 90 90). The re-armed job still gets its
+    boosted priority and updated resource amount but is not re-run in the same pass. All
+    "get resource" jobs are purged at the end of the pass anyway (0x00405948), and the AI
+    planner recreates the request on the next turn. The AI therefore retries an impossible
+    build once per turn (harmless) instead of hanging the game. Decisions on turns without
+    a mid-pass prerequisite chain are byte-for-byte identical to the unpatched game.
 
   FILE LOCATION
     VA 0x00408BAB lies in the CODE section (virtual address 0x00401000, raw file offset
@@ -240,7 +242,7 @@ $lblInfo.Size     = New-Object System.Drawing.Size(536, 70)
 $lblInfo.Text     = "Fixes the hang where an AI turn never finishes and the game sits at 100% CPU.`r`n" +
                     "Cause: the AI job scheduler lets 'get resource' and 'build prerequisite' jobs re-arm " +
                     "each other endlessly within one turn. The patch changes 3 bytes in DEADLOCK.EXE " +
-                    "(file offset 0x83AB) so a re-armed job waits for the next turn. A backup " +
+                    "(file offset 0x83AB) so a re-armed job is not re-run in the same turn. A backup " +
                     "(DEADLOCK.EXE.orig) is written before the first patch."
 
 # --- EXE path row ------------------------------------------------------------
