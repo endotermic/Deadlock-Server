@@ -15,6 +15,7 @@ Nothing here is the game itself. Everything acts on an existing installation of 
 | `netaccolade/server/` | **NetAccolade stand-in**: a Node.js lobby server the game starts and is started by, exactly the way the 1998 service worked. Chat, create/join games with every scenario option, Ready/Launch, fake players and fake DirectPlay sessions for testing alone. |
 | `netaccolade/Start-OnlineWar.ps1`, `host.ini`, `join.ini` | **Lobby-less launcher**: writes the launch file and starts the game as host or joiner over TCP/IP without any lobby. |
 | `Patch-DeadlockAIHang.ps1` | **EXE patches**: fixes the game freezing at 100% CPU during an AI turn (3 bytes) and the crash when the full-screen game is minimised and restored (25 bytes). GUI and command line, with backup and restore. |
+| `patcher/installer.cmd`, `patcher/Patcher.cs` | The same two patches as a C# program: `installer.cmd` compiles `Patcher.cs` with the C# compiler built into Windows and runs it. No PowerShell needed. |
 | `AI-Hang-Investigation.md` | How the AI hang was found and fixed: data structures, the circular job cycle, the patch, a reusable WinDbg recipe. |
 | `Minimize-Crash-Investigation.md` | How the minimise/restore crash was found and fixed: the software-cursor module, the stale "cursor drawn" flag, the patch. |
 | `NetAccolade-Investigation.md` | How the game talks to NetAccolade: the `-ms` switch, the complete `deadlock.ini` format, the CGNet/DirectPlay layer. |
@@ -126,6 +127,19 @@ pointer. The patch makes the shutdown routine clear the flag.
 The script refuses to touch a file whose size or surrounding bytes do not match the GOG v1.20 build,
 writes `DEADLOCK.EXE.orig` before the first patch, applies only the patches that are missing, and needs
 the game closed. Details in `AI-Hang-Investigation.md` and `Minimize-Crash-Investigation.md`.
+
+The same patches are also available without PowerShell. `patcher\installer.cmd` compiles
+`patcher\Patcher.cs` with the .NET Framework 4 C# compiler that is part of Windows and runs it; the
+patch bytes and checks live in the C# source. Double-click it, or:
+
+```bat
+patcher\installer.cmd C:\Games\Deadlock2\DEADLOCK.EXE
+patcher\installer.cmd C:\Games\Deadlock2\DEADLOCK.EXE /status
+patcher\installer.cmd C:\Games\Deadlock2\DEADLOCK.EXE /restore
+```
+
+Without a path it looks for `DEADLOCK.EXE` next to the script, in the current folder, and at the GOG
+install path from the registry.
 
 ## Status and limits
 
