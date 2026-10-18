@@ -101,7 +101,38 @@ instead of 600×400: 2.8× the visible area.
 Re-laying out every dialog and panel for 1024×768, as the developers would have done, would mean rewriting
 the resource rectangles for hundreds of widgets and redrawing all frame art. Not worth it compared with B.
 
-## 5. Suggested first experiment
+## 5. The experiment, done (2026-10-18): `launcher\`
+
+`launcher\launch.cmd` compiles `launcher\Launcher.cs` with the Windows-bundled C# compiler and starts
+the game suspended, rewrites every width/height immediate listed in §2 (81 sites: 8 display/window/
+buffer values, 4 map-viewport values, 2 cursor-clip values, 7 clamps, 60 whole-screen rectangles)
+in the process memory from `launcher\deadlock2.cfg`, and resumes it. `DEADLOCK.EXE` is not modified.
+`launch.cmd /dry` prints the table.
+
+Result at `resolution=1024x768`, `windowed=0`, `bpp=16`, GOG wrapper with `display=desktop`:
+
+- The game starts, plays the intro, shows the menu, the race selection, the landing-site map and the
+  main screen, and reacts to the mouse everywhere. No crash, no hang. `DEBUG.TXT` looks normal.
+- `SetDisplayMode(1024,768,16)` is accepted; the wrapper presents the 1024×768 surface in a 4:3 area
+  of the desktop as it does for 640×480.
+- Menus and dialogs are drawn at their 640×480 size in the top-left corner of the surface. The rest of
+  the surface keeps whatever was there before (intro frames), because nothing clears it.
+- **The map renders across the full 1024-pixel width**, with territory borders, names and units, and
+  the minimap's view indicator grows accordingly. The viewport globals do drive the renderer.
+- The HUD (buttons, resources, minimap) stays at its 640×480 position: y 320–480, x 0–640. Tooltips
+  and buttons respond, so hit-testing of the HUD is intact. The strip to its right (x 640–1024) and
+  everything below y 480 are never painted.
+
+![main screen at 1024x768](launcher/screenshot-1024x768-main.jpg)
+
+In `windowed=1` mode the GOG wrapper creates a desktop-sized borderless window and stretches only the
+640×480 part of the drawing into it, so the enlarged surface is not visible there; use `windowed=0`.
+
+What this proves: the renderer, the DirectDraw layer, the dialog system and the mouse all cope with a
+bigger surface. What is left is exactly the layout work of §4 B steps 4–5: move the HUD to the bottom
+edge, extend or re-tile its background and the frame art, and clear the newly exposed areas.
+
+## 6. Suggested next step (superseded by §5)
 
 If the goal is to see whether B is worth pursuing, the smallest informative test is steps 1–3 only:
 

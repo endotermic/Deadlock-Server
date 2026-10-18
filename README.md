@@ -16,6 +16,8 @@ Nothing here is the game itself. Everything acts on an existing installation of 
 | `netaccolade/Start-OnlineWar.ps1`, `host.ini`, `join.ini` | **Lobby-less launcher**: writes the launch file and starts the game as host or joiner over TCP/IP without any lobby. |
 | `Patch-DeadlockAIHang.ps1` | **EXE patches**: fixes the game freezing at 100% CPU during an AI turn (3 bytes) and the crash when the full-screen game is minimised and restored (25 bytes). GUI and command line, with backup and restore. |
 | `patcher/installer.cmd`, `patcher/Patcher.cs` | The same two patches as a C# program: `installer.cmd` compiles `Patcher.cs` with the C# compiler built into Windows and runs it. No PowerShell needed. |
+| `launcher/launch.cmd`, `launcher/Launcher.cs`, `launcher/deadlock2.cfg` | **Resolution launcher (experimental)**: starts the game at the `resolution=` from the config by rewriting the 81 hard-coded 640×480 constants in memory at start-up. The map grows; the HUD and frame art do not yet. |
+| `Resolution-Investigation.md` | Why the game is 640×480, where that is wired in, what a 1024×768 mode takes, and what the launcher experiment showed. |
 | `AI-Hang-Investigation.md` | How the AI hang was found and fixed: data structures, the circular job cycle, the patch, a reusable WinDbg recipe. |
 | `Minimize-Crash-Investigation.md` | How the minimise/restore crash was found and fixed: the software-cursor module, the stale "cursor drawn" flag, the patch. |
 | `NetAccolade-Investigation.md` | How the game talks to NetAccolade: the `-ms` switch, the complete `deadlock.ini` format, the CGNet/DirectPlay layer. |
@@ -140,6 +142,25 @@ patcher\installer.cmd C:\Games\Deadlock2\DEADLOCK.EXE /restore
 
 Without a path it looks for `DEADLOCK.EXE` next to the script, in the current folder, and at the GOG
 install path from the registry.
+
+## 4. Resolution launcher (experimental)
+
+The game is hard-wired to 640×480. `launcher\launch.cmd` compiles `launcher\Launcher.cs` and starts the
+game suspended, rewrites every 640/480 constant (display mode, window, back buffers, clip rectangles,
+coordinate clamps, map viewport) in the process memory to the values in `launcher\deadlock2.cfg`, and
+resumes it. The EXE on disk is untouched.
+
+```ini
+resolution=1024x768
+windowed=0
+bpp=16
+#exe=C:\Games\Deadlock2\DEADLOCK.EXE
+```
+
+At 1024×768 the game runs, menus and dialogs work, and the map renders across the whole width, but the
+HUD and frame art are still the 640×480 sprites in the top-left and the area beside and below them is
+never painted. It is the platform for finishing a high-resolution mod, not a finished one. Details and a
+screenshot in `Resolution-Investigation.md` §5.
 
 ## Status and limits
 
