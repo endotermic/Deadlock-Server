@@ -177,8 +177,8 @@ recognised and left alone.
 
 At 1024×768 the game runs, menus and dialogs work, and the map renders across the whole width, but the
 HUD and frame art are still the 640×480 sprites in the top-left and the area beside and below them is
-never painted. It is the platform for finishing a high-resolution mod, not a finished one. Details and a
-screenshot in `Resolution-Investigation.md` §5.
+never painted. It is the platform for finishing a high-resolution mod, not a finished one. Details in
+`Resolution-Investigation.md` §5.
 
 ## Status and limits
 
