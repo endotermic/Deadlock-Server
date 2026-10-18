@@ -123,8 +123,6 @@ Result at `resolution=1024x768`, `windowed=0`, `bpp=16`, GOG wrapper with `displ
   and buttons respond, so hit-testing of the HUD is intact. The strip to its right (x 640–1024) and
   everything below y 480 are never painted.
 
-![main screen at 1024x768](launcher/screenshot-1024x768-main.jpg)
-
 In `windowed=1` mode the GOG wrapper creates a desktop-sized borderless window and stretches only the
 640×480 part of the drawing into it, so the enlarged surface is not visible there; use `windowed=0`.
 
