@@ -137,7 +137,7 @@ Verification:
 
 ## 6. Using the patch script
 
-`Patch-DeadlockAIHang.ps1` in the game folder. Backup is written to `DEADLOCK.EXE.orig` before the first patch.
+`Patch-DeadlockAIHang.ps1` in this repo. Backup is written to `DEADLOCK.EXE.orig` before the first patch. Since 2026-10-18 the same script also carries the minimise/restore crash fix (`Minimize-Crash-Investigation.md`) and applies whichever patches a file is still missing.
 
 | Command | What it does |
 |---------|--------------|

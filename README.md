@@ -1,8 +1,9 @@
 # Deadlock-Server
 
 Tools, patches and research for playing **Deadlock II: Shrine Wars** (Accolade / Cyberlore, 1998,
-GOG build v1.20) in 2026: a replacement for the long-dead NetAccolade online lobby, a fix for the
-game's AI-turn hang, and the reverse-engineering notes behind both.
+GOG build v1.20) in 2026: a replacement for the long-dead NetAccolade online lobby, fixes for the
+game's AI-turn hang and for the crash when the minimised game is restored, and the reverse-engineering
+notes behind all of it.
 
 Nothing here is the game itself. Everything acts on an existing installation of Deadlock II
 (`DEADLOCK.EXE` in what this README calls the *game directory*).
@@ -13,8 +14,9 @@ Nothing here is the game itself. Everything acts on an existing installation of 
 |------|------------|
 | `netaccolade/server/` | **NetAccolade stand-in**: a Node.js lobby server the game starts and is started by, exactly the way the 1998 service worked. Chat, create/join games with every scenario option, Ready/Launch, fake players and fake DirectPlay sessions for testing alone. |
 | `netaccolade/Start-OnlineWar.ps1`, `host.ini`, `join.ini` | **Lobby-less launcher**: writes the launch file and starts the game as host or joiner over TCP/IP without any lobby. |
-| `Patch-DeadlockAIHang.ps1` | **AI hang patch**: 3-byte fix for the game freezing at 100% CPU during an AI turn. GUI and command line, with backup and restore. |
-| `AI-Hang-Investigation.md` | How the hang was found and fixed: data structures, the circular job cycle, the patch, a reusable WinDbg recipe. |
+| `Patch-DeadlockAIHang.ps1` | **EXE patches**: fixes the game freezing at 100% CPU during an AI turn (3 bytes) and the crash when the full-screen game is minimised and restored (25 bytes). GUI and command line, with backup and restore. |
+| `AI-Hang-Investigation.md` | How the AI hang was found and fixed: data structures, the circular job cycle, the patch, a reusable WinDbg recipe. |
+| `Minimize-Crash-Investigation.md` | How the minimise/restore crash was found and fixed: the software-cursor module, the stale "cursor drawn" flag, the patch. |
 | `NetAccolade-Investigation.md` | How the game talks to NetAccolade: the `-ms` switch, the complete `deadlock.ini` format, the CGNet/DirectPlay layer. |
 | `Online-War-Worklog.md` | Overview of the whole online-multiplayer effort: findings, what was built, verification runs, open items, pitfalls. Start here for context. |
 | `netaccolade/server/protocol-notes.md` | DirectPlay 4 TCP/IP wire protocol as captured from the real game and read from `dplayx.dll`. |
@@ -97,15 +99,23 @@ range-checked by the game and a missing or invalid one silently aborts the launc
 `NetAccolade-Investigation.md`. Never leave a `deadlock.ini` in the game directory: with `-ms` it hijacks
 start-up.
 
-## 3. AI hang patch
+## 3. EXE patches
 
-Symptom: during an AI player's turn the game stops responding with one core at 100%, and reloading the
-autosave reproduces it. Cause: the AI's "request resource" routine re-arms an already-run job inside the
-same scheduling pass, so a circular prerequisite chain loops forever. The patch replaces that one store
-with NOPs; the AI retries once per turn instead of hanging.
+One script applies both fixes and reports which of them a given `DEADLOCK.EXE` already has.
+
+**AI turn hang.** During an AI player's turn the game stops responding with one core at 100%, and
+reloading the autosave reproduces it. Cause: the AI's "request resource" routine re-arms an already-run
+job inside the same scheduling pass, so a circular prerequisite chain loops forever. The patch replaces
+that one store with NOPs; the AI retries once per turn instead of hanging.
+
+**Crash on restore after minimise.** Alt-Tab or the Win key away from the full-screen game and back
+leaves a black screen that looks like a hang; the Application event log shows exception `0xC000041D`.
+Cause: on deactivation the software-cursor code frees the bitmap that holds the background under the
+cursor but leaves its "cursor is drawn" flag set, and on reactivation it blits from the freed (NULL)
+pointer. The patch makes the shutdown routine clear the flag.
 
 ```powershell
-# window with status, Patch, Restore and Browse
+# window with status per patch, Apply, Restore and Browse
 .\Patch-DeadlockAIHang.ps1 -ExePath C:\Games\Deadlock2\DEADLOCK.EXE
 
 # command line
@@ -114,8 +124,8 @@ with NOPs; the AI retries once per turn instead of hanging.
 ```
 
 The script refuses to touch a file whose size or surrounding bytes do not match the GOG v1.20 build,
-writes `DEADLOCK.EXE.orig` before the first patch, and needs the game closed. Details in
-`AI-Hang-Investigation.md`.
+writes `DEADLOCK.EXE.orig` before the first patch, applies only the patches that are missing, and needs
+the game closed. Details in `AI-Hang-Investigation.md` and `Minimize-Crash-Investigation.md`.
 
 ## Status and limits
 
