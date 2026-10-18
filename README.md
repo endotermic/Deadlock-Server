@@ -14,12 +14,13 @@ Nothing here is the game itself. Everything acts on an existing installation of 
 |------|------------|
 | `netaccolade/server/` | **NetAccolade stand-in**: a Node.js lobby server the game starts and is started by, exactly the way the 1998 service worked. Chat, create/join games with every scenario option, Ready/Launch, fake players and fake DirectPlay sessions for testing alone. |
 | `netaccolade/Start-OnlineWar.ps1`, `host.ini`, `join.ini` | **Lobby-less launcher**: writes the launch file and starts the game as host or joiner over TCP/IP without any lobby. |
-| `Patch-DeadlockAIHang.ps1` | **EXE patches**: fixes the game freezing at 100% CPU during an AI turn (3 bytes) and the crash when the full-screen game is minimised and restored (25 bytes). GUI and command line, with backup and restore. |
-| `patcher/installer.cmd`, `patcher/Patcher.cs` | The same two patches as a C# program: `installer.cmd` compiles `Patcher.cs` with the C# compiler built into Windows and runs it. No PowerShell needed. |
-| `launcher/launch.cmd`, `launcher/Launcher.cs`, `launcher/deadlock2.cfg` | **Launcher**: starts the game with both bug fixes applied in memory (nothing on disk changes) and, optionally, at the `resolution=` from the config by rewriting the 81 hard-coded 640×480 constants. The map grows; the HUD and frame art do not yet. |
+| `Patch-DeadlockAIHang.ps1` | **EXE patches**: fixes the game freezing at 100% CPU during an AI turn (3 bytes), the crash when the full-screen game is minimised and restored (25 bytes), and the close request ignored while minimised (42 bytes). GUI and command line, with backup and restore. |
+| `patcher/installer.cmd`, `patcher/Patcher.cs` | The same three patches as a C# program: `installer.cmd` compiles `Patcher.cs` with the C# compiler built into Windows and runs it. No PowerShell needed. |
+| `launcher/launch.cmd`, `launcher/Launcher.cs`, `launcher/deadlock2.cfg` | **Launcher**: starts the game with all three fixes applied in memory (nothing on disk changes) and, optionally, at the `resolution=` from the config by rewriting the 81 hard-coded 640×480 constants. The map grows; the HUD and frame art do not yet. |
 | `Resolution-Investigation.md` | Why the game is 640×480, where that is wired in, what a 1024×768 mode takes, and what the launcher experiment showed. |
 | `AI-Hang-Investigation.md` | How the AI hang was found and fixed: data structures, the circular job cycle, the patch, a reusable WinDbg recipe. |
 | `Minimize-Crash-Investigation.md` | How the minimise/restore crash was found and fixed: the software-cursor module, the stale "cursor drawn" flag, the patch. |
+| `Close-While-Minimized-Investigation.md` | Why the minimised game could not be closed, which gentle fixes failed and why, the code-cave patch. |
 | `NetAccolade-Investigation.md` | How the game talks to NetAccolade: the `-ms` switch, the complete `deadlock.ini` format, the CGNet/DirectPlay layer. |
 | `Online-War-Worklog.md` | Overview of the whole online-multiplayer effort: findings, what was built, verification runs, open items, pitfalls. Start here for context. |
 | `netaccolade/server/protocol-notes.md` | DirectPlay 4 TCP/IP wire protocol as captured from the real game and read from `dplayx.dll`. |
@@ -104,7 +105,7 @@ start-up.
 
 ## 3. EXE patches
 
-One script applies both fixes and reports which of them a given `DEADLOCK.EXE` already has.
+One script applies all three fixes and reports which of them a given `DEADLOCK.EXE` already has.
 
 **AI turn hang.** During an AI player's turn the game stops responding with one core at 100%, and
 reloading the autosave reproduces it. Cause: the AI's "request resource" routine re-arms an already-run
@@ -116,6 +117,12 @@ leaves a black screen that looks like a hang; the Application event log shows ex
 Cause: on deactivation the software-cursor code frees the bitmap that holds the background under the
 cursor but leaves its "cursor is drawn" flag set, and on reactivation it blits from the freed (NULL)
 pointer. The patch makes the shutdown routine clear the flag.
+
+**Close while minimised.** With the game minimised, the taskbar's "Close window" and Alt+F4 did nothing:
+the game answers every close request with an in-game confirmation dialog, which is invisible while
+minimised, and the wrapper never lets the game loop run in that state. The patch routes the close
+handler through a small code cave that exits the process when the window is minimised and leaves the
+dialog untouched when it is visible.
 
 ```powershell
 # window with status per patch, Apply, Restore and Browse
@@ -146,7 +153,7 @@ install path from the registry.
 ## 4. Launcher: fixes in memory, optional resolution
 
 `launcher\launch.cmd` compiles `launcher\Launcher.cs` with the C# compiler built into Windows and starts
-the game suspended. Before the first instruction runs it applies the two bug fixes from section 3 to the
+the game suspended. Before the first instruction runs it applies the three bug fixes from section 3 to the
 process memory (skipping any that the EXE on disk already has), optionally rewrites every hard-coded
 640×480 constant (display mode, window, back buffers, clip rectangles, coordinate clamps, map viewport)
 to the configured resolution, verifies every write, and resumes the game. DEADLOCK.EXE on disk is never
@@ -157,6 +164,7 @@ modified, so GOG Galaxy's file verification stays happy and nothing needs restor
 ```ini
 fix_aihang=1
 fix_minimize=1
+fix_close=1
 resolution=640x480      # 640x480 = the game's own size; e.g. 1024x768 for the experimental mode
 windowed=0
 bpp=auto                # pass no colour-depth switch; "-8" crashes the GOG build at start-up

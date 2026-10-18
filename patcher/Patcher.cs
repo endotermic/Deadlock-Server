@@ -142,6 +142,40 @@
 //  minimising/restoring it twice: no exception, the menu redrawn with the cursor in place.
 //
 //  =================================================================================================
+//  BUG 3 - THE MINIMISED GAME CANNOT BE CLOSED    (write-up: ..\Close-While-Minimized-Investigation.md)
+//  =================================================================================================
+//
+//  Symptom: with the game minimised, "Close window" from the taskbar or Alt+F4 does nothing; the
+//  process has to be killed.
+//
+//  Mechanism: the WM_CLOSE handler at 0x00472DA4 always pops up an in-game confirmation dialog
+//  ("Are you sure you want to exit Deadlock 2?" in the menu, a quit/save dialog during a match). The
+//  dialog is drawn inside the DirectDraw surface, so while the window is minimised it is invisible,
+//  and the request is effectively swallowed. Setting the game's quit flags instead of showing the
+//  dialog does not help: while minimised the GOG ddraw wrapper parks the main thread in its own
+//  message-pumping wait loop that never returns to the game, and after a forced restore the main
+//  menu ignores those flags anyway (its only working exit is its own X button).
+//
+//  The fix (PATCH 3): the handler's first instruction (5 bytes) becomes a jump into a 37-byte code
+//  cave in the zero-filled tail of the CODE section (0x004B4434; the import thunk table ends at
+//  0x004B4430 and nothing references the padding). The cave asks Windows whether the game's main
+//  window ([0x58F1A4]) is minimised - GetWindowLongA(hwnd, GWL_STYLE) & WS_MINIMIZE, through the
+//  game's own import thunks - and if so calls ExitProcess(0). Otherwise it executes the displaced
+//  instruction and jumps back, so with the window visible the dialog appears exactly as before.
+//  Nothing is lost that "quit without saving" would keep: AUTOSAVE.SAV is rewritten every turn.
+//
+//        00472DA4  A1 54F15900           mov eax,[59F154]      ->  E9 8B160400   jmp 004B4434
+//        004B4434  6A F0                 push -16              ; GWL_STYLE
+//        004B4436  FF35 A4F15800         push [58F1A4]         ; main window handle
+//        004B443C  E8 1AFDFFFF           call 004B415B         ; thunk -> USER32!GetWindowLongA
+//        004B4441  A9 00000020           test eax, 20000000h   ; WS_MINIMIZE
+//        004B4446  74 07                 jz 004B444F
+//        004B4448  6A 00                 push 0
+//        004B444A  E8 56FBFFFF           call 004B3FA5         ; thunk -> KERNEL32!ExitProcess
+//        004B444F  A1 54F15900           mov eax,[59F154]      ; displaced instruction
+//        004B4454  E9 50E9FBFF           jmp 00472DA9          ; back into the handler
+//
+//  =================================================================================================
 //  USAGE
 //  =================================================================================================
 //
@@ -284,6 +318,51 @@ namespace DeadlockPatcher
                                                                         //         cursor can be "drawn" any more
                             0xB8, 0x01, 0x00, 0x00, 0x00,               // 495014  mov eax, 1          ; same return value as before
                             0x5D, 0xC3 }                                // 495019  pop ebp / ret       ; third padding byte at 49501B untouched
+                    }
+                }
+            },
+
+            // -----------------------------------------------------------------------------------------
+            // PATCH 3 - the minimised game cannot be closed. See "BUG 3" at the top of the file.
+            // -----------------------------------------------------------------------------------------
+            new Patch
+            {
+                Id = "CloseWhileMinimized",
+                Name = "Close request ignored while minimised (WM_CLOSE dialog)",
+
+                // Context: the WM_CLOSE handler's instructions right after the one we replace. The patched
+                // instruction itself must not be part of the context, or an already-patched file would be
+                // reported as a foreign build:
+                //     00472DA9  85 C0          test eax, eax
+                //     00472DAB  7E 2D          jle  00472DDA        ; no match running -> plain "really quit?" box
+                //     00472DAD  BA C07A4500    mov  edx, 0x457AC0   ; main game screen handler
+                ContextOffset = 0x725A9,
+                Context = new byte[] { 0x85, 0xC0, 0x7E, 0x2D, 0xBA, 0xC0, 0x7A, 0x45, 0x00 },
+
+                Sites = new[]
+                {
+                    new Site
+                    {
+                        // SITE A: the handler's first instruction becomes the jump into the cave.
+                        VirtualAddr = 0x00472DA4, Offset = 0x725A4,
+                        Original = new byte[] { 0xA1, 0x54, 0xF1, 0x59, 0x00 },     // mov eax, [0x59F154]
+                        Patched  = new byte[] { 0xE9, 0x8B, 0x16, 0x04, 0x00 }      // jmp 0x004B4434
+                    },
+                    new Site
+                    {
+                        // SITE B: the cave, in the zero padding after the import thunks (0x4B4431..0x4B45FF).
+                        VirtualAddr = 0x004B4434, Offset = 0xB3C34,
+                        Original = new byte[37],                                    // 37 zero bytes
+                        Patched  = new byte[] {
+                            0x6A, 0xF0,                                 // push -16                   ; GWL_STYLE
+                            0xFF, 0x35, 0xA4, 0xF1, 0x58, 0x00,         // push dword ptr [58F1A4]    ; main window handle
+                            0xE8, 0x1A, 0xFD, 0xFF, 0xFF,               // call 004B415B              ; -> GetWindowLongA
+                            0xA9, 0x00, 0x00, 0x00, 0x20,               // test eax, 20000000h        ; WS_MINIMIZE
+                            0x74, 0x07,                                 // jz  +7                     ; not minimised
+                            0x6A, 0x00,                                 // push 0
+                            0xE8, 0x56, 0xFB, 0xFF, 0xFF,               // call 004B3FA5              ; -> ExitProcess, never returns
+                            0xA1, 0x54, 0xF1, 0x59, 0x00,               // mov eax, [59F154]          ; displaced instruction
+                            0xE9, 0x50, 0xE9, 0xFB, 0xFF }              // jmp 00472DA9               ; back into the handler
                     }
                 }
             }
@@ -521,7 +600,7 @@ namespace DeadlockPatcher
         }
 
         // /restore: the backup is the untouched GOG file, so copying it back removes every patch at
-        // once. Both bugs come back until the patcher is run again.
+        // once. All the bugs come back until the patcher is run again.
         static int Restore(string path)
         {
             EnsureGameClosed(path);

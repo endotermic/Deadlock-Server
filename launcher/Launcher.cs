@@ -10,7 +10,7 @@
 //  3. Starts DEADLOCK.EXE *suspended*: the image is mapped at its fixed base 0x400000 but no code has
 //     run yet.
 //  4. Rewrites bytes in the process memory:
-//       - the two bug fixes (same bytes as patcher\Patcher.cs; see "THE FIXES" below), unless the
+//       - the bug fixes (same bytes as patcher\Patcher.cs; see "THE FIXES" below), unless the
 //         EXE on disk already carries them, in which case they are detected and skipped;
 //       - every hard-coded 640x480 constant, when the configured resolution differs (see
 //         "THE RESOLUTION TABLE" below).
@@ -47,6 +47,30 @@
 //        494FC0  74 50 -> 74 52
 //        495003  33 C9 89 0D 9CDC5100 33 C0 A3 7CEC6500 B8 01000000 5D C3 00 00
 //            ->  33 C0 A3 9CDC5100 A3 7CEC6500 A3 8CDC5100 B8 01000000 5D C3
+//
+//  FIX 3 - close request ignored while minimised (fix_close). The WM_CLOSE handler (0x00472DA4,
+//  reached from the taskbar's "Close window", Alt+F4 and the title-bar X) always pops up an in-game
+//  confirmation dialog ("quit?" in the menu, "quit / save?" during a match). That dialog is drawn
+//  inside the DirectDraw surface and pumps its own messages, so while the window is minimised it is
+//  invisible and the game appears to ignore the request forever. (The game keeps its own
+//  "minimised" flag at [0x4D63D4] from WM_SIZE, but under the GOG ddraw wrapper that message never
+//  reaches the game's window procedure, so the flag is useless there.)
+//  Fix: the first instruction of the handler becomes a jump into a code cave (the zero-filled tail
+//  of the CODE section, at 0x004B4434) that asks Windows directly through the game's own import:
+//  GetWindowLongA([0x58F1A4] = main window handle, GWL_STYLE) & WS_MINIMIZE. If minimised it calls
+//  ExitProcess(0) through the game's own import thunk; otherwise it executes the displaced
+//  instruction and jumps back, so behaviour while the window is visible is unchanged.
+//
+//  Why ExitProcess and not the game's quit flags: three gentler variants were tried and traced.
+//  (a) Setting the quit flag [0x58F1EC] = 1 as the dialog's "yes" does: never read, because while
+//      minimised the GOG wrapper parks the main thread in its own wait loop that pumps messages but
+//      never returns to the game. (b) Setting the flag and restoring the window with ShowWindow:
+//      the game loop resumes but the main menu ignores the flag and carries on. (c) Setting both
+//      quit flags ([0x58F1EC] and [0x58F1F0], as WM_QUIT/WM_DESTROY do) plus restore: same result.
+//      Even the game's own Exit Game dialog, answered "yes" with the window visible, leaves the
+//      main menu running in this build; only the menu's own X button quits. So the only reliable
+//      close from the minimised state is the process exit. Nothing is lost that "quit without
+//      saving" would keep: AUTOSAVE.SAV is rewritten at the end of every turn anyway.
 //
 //  =================================================================================================
 //  THE RESOLUTION TABLE                                        (write-up: ..\Resolution-Investigation.md)
@@ -116,7 +140,7 @@ namespace Deadlock2Launcher
         public int ViewportW = -1, ViewportH = -1;   // -1 = derive from the screen size
         public bool Windowed = false;
         public int Bpp = 0;          // 0 = pass no colour-depth switch (the game's own default), 16 = -16, 8 = -8
-        public bool FixAiHang = true, FixMinimize = true;
+        public bool FixAiHang = true, FixMinimize = true, FixClose = true;
         public string Exe;
         public string ExtraArgs = "";
     }
@@ -186,7 +210,8 @@ namespace Deadlock2Launcher
                 Console.WriteLine("DEADLOCK.EXE: " + s.Exe);
                 Console.WriteLine("resolution  : {0}x{1}  viewport {2}x{3}  {4}  {5}", s.Width, s.Height,
                     s.ViewportW, s.ViewportH, s.Windowed ? "windowed" : "fullscreen", s.Bpp == 0 ? "default colour depth" : s.Bpp + " bpp");
-                Console.WriteLine("fixes       : AI hang {0}, minimise crash {1}", s.FixAiHang ? "on" : "off", s.FixMinimize ? "on" : "off");
+                Console.WriteLine("fixes       : AI hang {0}, minimise crash {1}, close while minimised {2}",
+                    s.FixAiHang ? "on" : "off", s.FixMinimize ? "on" : "off", s.FixClose ? "on" : "off");
 
                 byte[] file = ReadCheckedFile(s.Exe);
                 List<BytePatch> plan = BuildPlan(s, file);
@@ -254,6 +279,7 @@ namespace Deadlock2Launcher
                     case "bpp":          s.Bpp = (val.ToLowerInvariant() == "auto" || val == "") ? 0 : int.Parse(val); break;
                     case "fix_aihang":   s.FixAiHang = ParseBool(val, key); break;
                     case "fix_minimize": s.FixMinimize = ParseBool(val, key); break;
+                    case "fix_close":    s.FixClose = ParseBool(val, key); break;
                     case "exe":          s.Exe = val.Trim('"'); break;
                     case "args":         s.ExtraArgs = val; break;
                     default: throw new FormatException("Unknown setting '" + key + "' in " + path);
@@ -344,7 +370,7 @@ namespace Deadlock2Launcher
             // --- bug fixes ------------------------------------------------------------------------
             foreach (Fix fix in Fixes)
             {
-                bool enabled = fix.Id == "AIHang" ? s.FixAiHang : s.FixMinimize;
+                bool enabled = fix.Id == "AIHang" ? s.FixAiHang : fix.Id == "MinimizeCrash" ? s.FixMinimize : s.FixClose;
                 if (!enabled) { Console.WriteLine("  {0}: disabled in config.", fix.Name); continue; }
                 if (!FileHas(file, fix.ContextAddr, fix.Context))
                     throw new InvalidDataException(fix.Name + ": code around the patch site does not match this build. Refusing.");
@@ -503,6 +529,39 @@ namespace Deadlock2Launcher
                         Original = new byte[] { 0x33,0xC9, 0x89,0x0D,0x9C,0xDC,0x51,0x00, 0x33,0xC0, 0xA3,0x7C,0xEC,0x65,0x00, 0xB8,0x01,0x00,0x00,0x00, 0x5D, 0xC3, 0x00,0x00 },
                         Patched  = new byte[] { 0x33,0xC0, 0xA3,0x9C,0xDC,0x51,0x00, 0xA3,0x7C,0xEC,0x65,0x00, 0xA3,0x8C,0xDC,0x51,0x00, 0xB8,0x01,0x00,0x00,0x00, 0x5D, 0xC3 },
                         Note = "shutdown tail also clears the 'cursor drawn' flag [51DC8C]" }
+                }
+            },
+            new Fix
+            {
+                Id = "CloseWhileMinimized", Name = "Close request ignored while minimised (WM_CLOSE dialog)",
+                // the WM_CLOSE handler's instructions right after the patched one (which must not be part
+                // of the context, or an already-patched file would look like a foreign build):
+                //   85 C0            test eax, eax
+                //   7E 2D            jle  <plain "really quit?" box>
+                //   BA C07A4500      mov  edx, 0x457AC0
+                ContextAddr = 0x00472DA9, Context = new byte[] { 0x85, 0xC0, 0x7E, 0x2D, 0xBA, 0xC0, 0x7A, 0x45, 0x00 },
+                Patches = new[]
+                {
+                    new BytePatch { Group = "fix_close", Addr = 0x00472DA4, SkipIfAlreadyPatched = true,
+                        Original = new byte[] { 0xA1, 0x54, 0xF1, 0x59, 0x00 },     // mov eax, [0x59F154]   (game in progress?)
+                        Patched  = new byte[] { 0xE9, 0x8B, 0x16, 0x04, 0x00 },     // jmp 0x004B4434        (the cave)
+                        Note = "WM_CLOSE handler entry -> cave" },
+                    // The import thunk table ends at 0x4B4430 (last byte of "jmp [DirectDrawCreate]"); the
+                    // zero padding of the CODE section runs from 0x4B4431 to 0x4B45FF. The cave starts at
+                    // the next 4-byte boundary.
+                    new BytePatch { Group = "fix_close", Addr = 0x004B4434, SkipIfAlreadyPatched = true,
+                        Original = new byte[37],                                     // zero padding at the end of CODE
+                        Patched  = new byte[] {
+                            0x6A, 0xF0,                                              // push -16                     ; GWL_STYLE
+                            0xFF, 0x35, 0xA4, 0xF1, 0x58, 0x00,                      // push dword ptr [58F1A4]      ; the game's main window handle
+                            0xE8, 0x1A, 0xFD, 0xFF, 0xFF,                            // call 0x004B415B              ; thunk: jmp [USER32!GetWindowLongA]
+                            0xA9, 0x00, 0x00, 0x00, 0x20,                            // test eax, 20000000h          ; WS_MINIMIZE
+                            0x74, 0x07,                                              // jz  +7 -> not minimised
+                            0x6A, 0x00,                                              // push 0                       ; exit code
+                            0xE8, 0x56, 0xFB, 0xFF, 0xFF,                            // call 0x004B3FA5              ; thunk: jmp [KERNEL32!ExitProcess]; never returns
+                            0xA1, 0x54, 0xF1, 0x59, 0x00,                            // mov eax, [59F154]            ; the displaced instruction
+                            0xE9, 0x50, 0xE9, 0xFB, 0xFF },                          // jmp 0x00472DA9               ; continue the original handler
+                        Note = "cave: exit the process when the window is minimised, else run the original handler" }
                 }
             }
         };

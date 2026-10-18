@@ -1,7 +1,8 @@
 <#
 .SYNOPSIS
-  Fixes two bugs in Deadlock II: Shrine Wars v1.20 (GOG) by patching a few bytes in DEADLOCK.EXE:
-  the "AI turn never ends" hang and the crash when the minimised game is restored.
+  Fixes three bugs in Deadlock II: Shrine Wars v1.20 (GOG) by patching a few bytes in DEADLOCK.EXE:
+  the "AI turn never ends" hang, the crash when the minimised game is restored, and the close
+  request that was ignored while the game was minimised.
   Runs as a small window by default, or from the command line.
 
 .DESCRIPTION
@@ -66,6 +67,23 @@
 
       Nothing outside minimise/restore changes; after a restore the cursor code takes its normal
       "no cursor on screen" path and re-creates the save-under.
+
+  PATCH 3 - the minimised game cannot be closed (42 bytes at file offsets 0x725A4 and 0xB3C34)
+
+    SYMPTOM
+      With the game minimised, "Close window" from the taskbar or Alt+F4 does nothing.
+
+    ROOT CAUSE
+      The WM_CLOSE handler at VA 0x00472DA4 always shows an in-game confirmation dialog. It is drawn
+      inside the DirectDraw surface, so while minimised it is invisible, and the GOG ddraw wrapper
+      keeps the main thread in its own wait loop in that state, so no game code could act anyway.
+
+    THE FIX
+      The handler's first instruction becomes a jump into a 37-byte code cave in the zero padding at
+      the end of the CODE section (VA 0x004B4434). The cave checks GetWindowLongA(hwnd, GWL_STYLE)
+      & WS_MINIMIZE through the game's own imports; if the window is minimised it calls
+      ExitProcess(0), otherwise it runs the displaced instruction and jumps back, so the dialog
+      still appears while the window is visible.
 
   FILE LOCATIONS
     The CODE section starts at VA 0x00401000 / raw file offset 0x800, so file offset = VA - 0x400800.
@@ -171,6 +189,41 @@ $script:Patches = @(
                                        0xB8,0x01,0x00,0x00,0x00, 0x5D, 0xC3, 0x00,0x00)
                 Patched     = [byte[]](0x33,0xC0, 0xA3,0x9C,0xDC,0x51,0x00, 0xA3,0x7C,0xEC,0x65,0x00, 0xA3,0x8C,0xDC,0x51,0x00,
                                        0xB8,0x01,0x00,0x00,0x00, 0x5D, 0xC3)
+            }
+        )
+    },
+    [pscustomobject]@{
+        Id      = 'CloseWhileMinimized'
+        Name    = 'Close request ignored while minimised (WM_CLOSE dialog)'
+        Context = [pscustomobject]@{
+            Offset = 0x725A9
+            Bytes  = [byte[]](0x85,0xC0,0x7E,0x2D,0xBA,0xC0,0x7A,0x45,0x00)
+            # the WM_CLOSE handler's instructions right after the patched one (VA 0x00472DA9); the
+            # patched instruction itself is left out so an already-patched file still matches:
+            #   85 C0         test eax, eax
+            #   7E 2D         jle  <plain "really quit?" box>
+            #   BA C07A4500   mov  edx, 0x457AC0
+        }
+        Sites = @(
+            [pscustomobject]@{
+                VirtualAddr = 0x00472DA4
+                Offset      = 0x725A4
+                Original    = [byte[]](0xA1,0x54,0xF1,0x59,0x00)              # mov eax, [0x59F154]
+                Patched     = [byte[]](0xE9,0x8B,0x16,0x04,0x00)              # jmp 0x004B4434 (the cave)
+            },
+            [pscustomobject]@{
+                VirtualAddr = 0x004B4434
+                Offset      = 0xB3C34
+                Original    = [byte[]](@(0) * 37)                             # zero padding after the import thunks
+                Patched     = [byte[]](0x6A,0xF0,                             # push -16            ; GWL_STYLE
+                                       0xFF,0x35,0xA4,0xF1,0x58,0x00,         # push [58F1A4]       ; main window handle
+                                       0xE8,0x1A,0xFD,0xFF,0xFF,              # call 004B415B       ; -> GetWindowLongA
+                                       0xA9,0x00,0x00,0x00,0x20,              # test eax, WS_MINIMIZE
+                                       0x74,0x07,                             # jz +7               ; not minimised
+                                       0x6A,0x00,                             # push 0
+                                       0xE8,0x56,0xFB,0xFF,0xFF,              # call 004B3FA5       ; -> ExitProcess
+                                       0xA1,0x54,0xF1,0x59,0x00,              # mov eax, [59F154]   ; displaced instruction
+                                       0xE9,0x50,0xE9,0xFB,0xFF)              # jmp 00472DA9        ; back into the handler
             }
         )
     }
@@ -351,11 +404,10 @@ $form.Font            = New-Object System.Drawing.Font('Segoe UI', 9)
 $lblInfo = New-Object System.Windows.Forms.Label
 $lblInfo.Location = New-Object System.Drawing.Point(12, 10)
 $lblInfo.Size     = New-Object System.Drawing.Size(536, 84)
-$lblInfo.Text     = "Two byte patches for DEADLOCK.EXE (GOG v1.20):`r`n" +
-                    "1. AI turn hang: an AI turn never finishes and the game sits at 100% CPU. " +
-                    "3 bytes at file offset 0x83AB stop 'get resource' and 'build prerequisite' jobs re-arming each other.`r`n" +
-                    "2. Minimise crash: Alt-Tab away and back leaves a black screen (exception 0xC000041D). " +
-                    "25 bytes at 0x947C1/0x94803 make the cursor code forget a freed save-under bitmap.`r`n" +
+$lblInfo.Text     = "Three byte patches for DEADLOCK.EXE (GOG v1.20):`r`n" +
+                    "1. AI turn hang: an AI turn never finishes at 100% CPU (3 bytes at 0x83AB).`r`n" +
+                    "2. Minimise crash: Alt-Tab away and back leaves a black screen, 0xC000041D (25 bytes at 0x947C1/0x94803).`r`n" +
+                    "3. Close while minimised: taskbar Close / Alt+F4 did nothing while minimised (42 bytes at 0x725A4/0xB3C34).`r`n" +
                     "A backup (DEADLOCK.EXE.orig) is written before the first patch."
 
 # --- EXE path row ------------------------------------------------------------
@@ -447,7 +499,7 @@ function Update-Status {
     }
 
     switch ($state.State) {
-        'Patched'   { $lblStatus.Text = 'PATCHED - both fixes are applied';          $lblStatus.ForeColor = [System.Drawing.Color]::ForestGreen }
+        'Patched'   { $lblStatus.Text = 'PATCHED - all fixes are applied';           $lblStatus.ForeColor = [System.Drawing.Color]::ForestGreen }
         'Partial'   { $lblStatus.Text = 'PARTLY PATCHED - a fix is still missing';   $lblStatus.ForeColor = [System.Drawing.Color]::DarkOrange }
         'Original'  { $lblStatus.Text = 'NOT PATCHED - original v1.20 EXE';          $lblStatus.ForeColor = [System.Drawing.Color]::DarkOrange }
         'Missing'   { $lblStatus.Text = 'FILE NOT FOUND';                            $lblStatus.ForeColor = [System.Drawing.Color]::Firebrick }
@@ -489,7 +541,7 @@ $btnPatch.Add_Click({
 
 $btnRestore.Add_Click({
     $answer = [System.Windows.Forms.MessageBox]::Show($form,
-        "Copy DEADLOCK.EXE.orig back over DEADLOCK.EXE?`r`nBoth bugs will come back until you patch again.",
+        "Copy DEADLOCK.EXE.orig back over DEADLOCK.EXE?`r`nAll three bugs will come back until you patch again.",
         'Restore original', [System.Windows.Forms.MessageBoxButtons]::YesNo, [System.Windows.Forms.MessageBoxIcon]::Question)
     if ($answer -ne [System.Windows.Forms.DialogResult]::Yes) { return }
     try {
