@@ -1,13 +1,14 @@
 @echo off
 rem launch.cmd - compiles Launcher.cs with the C# compiler that ships with Windows and starts
-rem Deadlock II through it, applying the settings in deadlock2.cfg (next to this script).
+rem Deadlock II through it: the bug fixes (AI turn hang, crash on restore after minimise) and
+rem the resolution from deadlock2.cfg (next to this script) are applied in memory at start-up.
 rem
 rem   launch.cmd                     use deadlock2.cfg next to this script
 rem   launch.cmd my-settings.cfg     use another settings file
-rem   launch.cmd /dry                read the config and report the patch table, start nothing
+rem   launch.cmd /dry                read the config and report what would be patched, start nothing
 rem
-rem DEADLOCK.EXE on disk is never modified; the constants are rewritten in the running
-rem process only. Needs the .NET Framework 4 that is part of Windows.
+rem DEADLOCK.EXE on disk is never modified; the bytes are rewritten in the running process
+rem only. Needs the .NET Framework 4 that is part of Windows.
 setlocal
 
 set "SRC=%~dp0Launcher.cs"

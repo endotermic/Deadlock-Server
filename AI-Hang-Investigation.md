@@ -137,7 +137,7 @@ Verification:
 
 ## 6. Using the patch script
 
-`Patch-DeadlockAIHang.ps1` in this repo. Backup is written to `DEADLOCK.EXE.orig` before the first patch. Since 2026-10-18 the same script also carries the minimise/restore crash fix (`Minimize-Crash-Investigation.md`) and applies whichever patches a file is still missing.
+`Patch-DeadlockAIHang.ps1` in this repo. Backup is written to `DEADLOCK.EXE.orig` before the first patch. Since 2026-10-18 the same script also carries the minimise/restore crash fix (`Minimize-Crash-Investigation.md`) and applies whichever patches a file is still missing. `patcher\installer.cmd` does the same from C#, and `launcher\launch.cmd` applies both fixes in memory at start-up without modifying the EXE.
 
 | Command | What it does |
 |---------|--------------|

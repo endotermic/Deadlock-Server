@@ -5,7 +5,7 @@ Game: Deadlock II: Shrine Wars v1.20, GOG build (`DEADLOCK.EXE`, 1,738,752 bytes
 OS: Windows 11 Home 10.0.26300
 Status: root cause found, 25-byte patch verified in-game, patch applied to the installed EXE.
 
-Companion to `AI-Hang-Investigation.md`, which covers the tooling in more detail. Both fixes are applied by `Patch-DeadlockAIHang.ps1`.
+Companion to `AI-Hang-Investigation.md`, which covers the tooling in more detail. Both fixes are applied on disk by `Patch-DeadlockAIHang.ps1` or `patcher\installer.cmd`, and in memory at start-up by `launcher\launch.cmd`.
 
 ---
 

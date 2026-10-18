@@ -128,6 +128,14 @@ Result at `resolution=1024x768`, `windowed=0`, `bpp=16`, GOG wrapper with `displ
 In `windowed=1` mode the GOG wrapper creates a desktop-sized borderless window and stretches only the
 640×480 part of the drawing into it, so the enlarged surface is not visible there; use `windowed=0`.
 
+Colour depth: the game's built-in default (`[0x4D5A8C]` in the data section) is already 16, so `-16`
+changes nothing. `-8` makes the GOG build crash at start-up with an access violation in a row copy at
+`0x0048E6FE`, with or without any patch, so the launcher's `bpp=auto` passes no switch at all.
+
+Since 2026-10-18 the launcher also applies the two bug fixes (AI hang, minimise crash) in memory, so a
+pristine GOG EXE gets everything at start-up with nothing written to disk; `patcher\` remains for a
+permanent on-disk patch, and each tool recognises the other's state.
+
 What this proves: the renderer, the DirectDraw layer, the dialog system and the mouse all cope with a
 bigger surface. What is left is exactly the layout work of §4 B steps 4–5: move the HUD to the bottom
 edge, extend or re-tile its background and the frame art, and clear the newly exposed areas.
